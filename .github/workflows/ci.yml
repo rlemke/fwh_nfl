@@ -6,3 +6,4 @@ jobs:
     uses: rlemke/facetwork/.github/workflows/domain-ci.yml@main
     with:
       extras: "test"
+      lib-repos: "rlemke/fwh_census_us"
