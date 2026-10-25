@@ -1,0 +1,181 @@
+/** NFL players, teams, game predictions and the path to the Super Bowl.
+  *
+  * Data: nflverse (schedules and results since 1999, weekly player stats,
+  * player bios), fetched with the built-in `fw.http.Fetch` so a nightly
+  * refresh only re-downloads files that changed upstream.
+  *
+  * Model: an Elo team rating, scored game by game against the betting
+  * market's closing line on the same games. Out of sample (2015–2025) it
+  * picks about 64% of winners to the market's 66%: useful, and not a way to
+  * beat the market.
+  *
+  * Season: a Monte Carlo of the remaining schedule with the league's real
+  * tiebreakers, fanned out in chunks across the fleet and merged by adding
+  * counts. */
+namespace nfl.data {
+    use fw.http
+
+    /** The nflverse files to fetch: schedules, teams, players, and one
+      * weekly player-stats file per season. `last_season` 0 = the current one. */
+    event facet Sources(first_season: Int = 1999, last_season: Int = 0) => (
+        sources: Json,
+        count: Int,
+        season: Int
+    ) with Effect(kind = "pure") with Cost(tier = "free")
+
+    /** Fetch one file, reusing the stored copy while upstream says it is current. */
+    facet FetchOne(source: Json) => (path: String)
+        andThen {
+            got = fw.http.Fetch(
+                url = $.source.url,
+                dest = $.source.dest,
+                max_age_hours = $.source.max_age_hours
+            )
+            yield FetchOne(path = got.path)
+        }
+
+    facet FetchAll(sources: Json, width: Int) => (paths: Json)
+        andThen foreach s in $.sources limit $.width {
+            one = FetchOne(source = $.s)
+            yield FetchAll(paths += one.path)
+        }
+
+    /** Load the fetched files into MongoDB. A file whose checksum matches the
+      * last load is skipped, so a nightly run touches only what changed. */
+    event facet Load(paths: Json, force: Boolean = false) => (
+        loaded: Json,
+        loaded_count: Int,
+        skipped_count: Int
+    ) with Effect(kind = "io") with Cost(tier = "cheap")
+}
+
+namespace nfl.model {
+
+    /** Rate every game since 1999 and store each game's pre-game view. */
+    event facet Rate(k: Double = 20.0, hfa: Double = 48.0, regress: Double = 0.4) => (
+        season: Int,
+        through_game: String,
+        games_rated: Int,
+        top: Json
+    ) with Effect(kind = "io") with Cost(tier = "cheap")
+
+    /** Freeze the prediction for each upcoming game and settle finished ones:
+      * the live track record is built only from predictions made BEFORE kickoff. */
+    event facet RecordPredictions(season: Int = 0) => (
+        season: Int,
+        recorded: Int,
+        settled: Int
+    ) with Effect(kind = "io") with Cost(tier = "free")
+
+    /** Model vs market on every game of the window, and how well mid-season
+      * playoff odds held up against who actually got in. */
+    event facet Backtest(
+        first_season: Int = 2015,
+        last_season: Int = 0,
+        sims: Int = 1000,
+        after_week: Int = 9
+    ) => (
+        games: Int,
+        model_accuracy: Double,
+        market_accuracy: Double,
+        model_brier: Double,
+        market_brier: Double,
+        playoff_brier: Double
+    ) with Effect(kind = "io") with Cost(tier = "moderate")
+}
+
+namespace nfl.season {
+
+    /** Capture the state to simulate from (stored under its hash) and split
+      * the simulations into chunks. `season` 0 = the current one. */
+    event facet Plan(season: Int = 0, sims: Int = 10000, chunk: Int = 2500) => (
+        key: String,
+        season: Int,
+        chunks: Json,
+        remaining_games: Int
+    ) with Effect(kind = "io") with Cost(tier = "free")
+
+    /** Simulate one chunk; returns counts that merge by addition. */
+    event facet SimulateChunk(key: String, seed: Int, sims: Int) => (counts: Json)
+        with Effect(kind = "pure") with Cost(tier = "cheap")
+
+    facet SimulateAll(key: String, chunks: Json, width: Int) => (parts: Json)
+        andThen foreach c in $.chunks limit $.width {
+            one = SimulateChunk(key = $.key, seed = $.c.seed, sims = $.c.sims)
+            yield SimulateAll(parts += one.counts)
+        }
+
+    /** Merge the chunks into playoff, bracket and Super Bowl odds. */
+    event facet Aggregate(key: String, parts: Json) => (
+        season: Int,
+        sims: Int,
+        favourite: String,
+        favourite_p: Double
+    ) with Effect(kind = "io") with Cost(tier = "free")
+}
+
+namespace nfl.workflows {
+    use nfl.data
+    use nfl.model
+    use nfl.season
+
+    /** The nightly run: fetch what changed, re-rate, record this week's
+      * predictions, and re-simulate the season. */
+    workflow Update(first_season: Int = 1999, sims: Int = 10000, width: Int = 4) => (
+        loaded: Int,
+        season: Int,
+        favourite: String,
+        favourite_p: Double
+    ) andThen {
+        src = nfl.data.Sources(first_season = $.first_season)
+        fetched = nfl.data.FetchAll(sources = src.sources, width = $.width)
+        loaded = nfl.data.Load(paths = fetched.paths)
+        // Rate reads what Load wrote to the database; no value flows between them.
+        rated = nfl.model.Rate() after loaded
+        recorded = nfl.model.RecordPredictions(season = rated.season)
+        plan = nfl.season.Plan(season = rated.season, sims = $.sims)
+        sims = nfl.season.SimulateAll(key = plan.key, chunks = plan.chunks, width = $.width)
+        agg = nfl.season.Aggregate(key = plan.key, parts = sims.parts)
+        yield Update(
+            loaded = loaded.loaded_count,
+            season = agg.season,
+            favourite = agg.favourite,
+            favourite_p = agg.favourite_p
+        )
+    }
+
+    /** Re-simulate a season from what is already loaded — no fetch, no re-rate. */
+    workflow Simulate(season: Int = 0, sims: Int = 10000, width: Int = 4) => (
+        season: Int,
+        favourite: String,
+        favourite_p: Double
+    ) andThen {
+        plan = nfl.season.Plan(season = $.season, sims = $.sims)
+        sims = nfl.season.SimulateAll(key = plan.key, chunks = plan.chunks, width = $.width)
+        agg = nfl.season.Aggregate(key = plan.key, parts = sims.parts)
+        yield Simulate(season = agg.season, favourite = agg.favourite, favourite_p = agg.favourite_p)
+    }
+
+    /** How good is the model? Scored on games it had not seen, against the market.
+      * (Not named `Backtest`: a workflow sharing its short name with the event
+      * facet it calls was dispatched as that facet by runtimes before facetwork
+      * fixed the lookup on 2026-10-25.) */
+    workflow ScoreModel(first_season: Int = 2015, last_season: Int = 0, sims: Int = 1000) => (
+        games: Int,
+        model_accuracy: Double,
+        market_accuracy: Double,
+        model_brier: Double,
+        market_brier: Double,
+        playoff_brier: Double
+    ) andThen {
+        bt = nfl.model.Backtest(first_season = $.first_season, last_season = $.last_season, sims = $.sims)
+        yield ScoreModel(
+            games = bt.games,
+            model_accuracy = bt.model_accuracy,
+            market_accuracy = bt.market_accuracy,
+            model_brier = bt.model_brier,
+            market_brier = bt.market_brier,
+            playoff_brier = bt.playoff_brier
+        )
+    }
+}
