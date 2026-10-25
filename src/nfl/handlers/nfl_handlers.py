@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from .. import db as dbmod
@@ -124,6 +126,34 @@ def handle_simulate_chunk(params: dict[str, Any]) -> dict[str, Any]:
     return {"counts": counts}
 
 
+def handle_site_build(params: dict[str, Any]) -> dict[str, Any]:
+    """Render the static site locally, then copy it to the domain's maps store.
+
+    Staged locally because an object store has no partial writes; the copy is
+    file by file, so a crash halfway leaves a mix of old and new pages that the
+    next run overwrites (every page is regenerated every time).
+    """
+    from facetwork.domains.storage import is_remote, join
+
+    from ..site import build_site
+    from ..storage import S
+
+    dest = join(S.maps_root(), "site")
+    with tempfile.TemporaryDirectory(prefix="nfl_site_") as tmp:
+        out = build_site(_db(), tmp, log=_log(params))
+        for rel in out["paths"]:
+            target = join(dest, rel)
+            if not is_remote(target):
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+            S.write_bytes(target, Path(tmp, rel).read_bytes())
+    return {
+        "output_dir": dest,
+        "files": out["files"],
+        "bytes": out["bytes"],
+        "season": out["season"],
+    }
+
+
 def handle_aggregate(params: dict[str, Any]) -> dict[str, Any]:
     parts = _json(params.get("parts"), [])
     return service.aggregate(_db(), params["key"], parts, log=_log(params))
@@ -138,6 +168,7 @@ _DISPATCH: dict[str, Callable[[dict], dict]] = {
     "nfl.season.Plan": handle_plan,
     "nfl.season.SimulateChunk": handle_simulate_chunk,
     "nfl.season.Aggregate": handle_aggregate,
+    "nfl.site.Build": handle_site_build,
 }
 
 

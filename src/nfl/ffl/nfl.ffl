@@ -114,6 +114,19 @@ namespace nfl.season {
     ) with Effect(kind = "io") with Cost(tier = "free")
 }
 
+namespace nfl.site {
+
+    /** Render the database as a static website (self-contained HTML pages) into
+      * the domain's output store. Deterministic: unchanged data renders
+      * byte-identical pages. `season` only orders it after an update. */
+    event facet Build(season: Int = 0) => (
+        output_dir: String,
+        files: Int,
+        bytes: Int,
+        season: Int
+    ) with Effect(kind = "io") with Cost(tier = "cheap") with Timeout(minutes = 15)
+}
+
 namespace nfl.workflows {
     use nfl.data
     use nfl.model

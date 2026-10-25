@@ -65,6 +65,8 @@ More in [docs/ffl-examples.md](docs/ffl-examples.md).
 | `nfl.workflows.Update` | fetch what changed → load → re-rate → freeze predictions → simulate the season |
 | `nfl.workflows.Simulate` | re-simulate from what is loaded |
 | `nfl.workflows.ScoreModel` | backtest vs the betting line, plus playoff-odds calibration |
+| `nfl.publish.PublishSite` | render the static site and publish it to GitHub Pages |
+| `nfl.publish.UpdateSite` | `Update`, then render and publish — the daily job |
 
 The fetch step uses the built-in `fw.http.Fetch`, which revalidates with
 conditional GETs. Loads skip any file whose checksum has not changed, so a
@@ -83,6 +85,27 @@ fw svc nfl-update --install                        # daily at 06:30 local
 Data lives in `FW_EXAMPLES_DATABASE` (default `facetwork_examples`), in the
 collections `nfl_*`. Raw downloads go to the domain cache: the object store
 on the fleet, a local directory elsewhere.
+
+## The public site
+
+`nfl.site.Build` renders the same views as the dashboard app to plain,
+self-contained HTML: this season's games by week, playoff odds and the
+projected bracket, a page per team, player search, and the model's record.
+Player details are split across 64 shard pages (`players/sNN.html#<id>`),
+because 11,000 player pages would dominate the site and a single file would
+be too big to load. The whole site is about 10 MB.
+
+Rendering is **deterministic**: no build time on the pages, sorted output,
+simulation seeded from the season state. An unchanged database renders
+byte-identical files, so a daily publish with no new results commits
+nothing. `tests/test_site.py` checks this and that every internal link
+resolves.
+
+The publish workflows live in `ffl/nfl_site.ffl`, separate from `nfl.ffl`,
+because they call the shared, token-gated Pages publisher in
+[fwh_census_us](https://github.com/rlemke/fwh_census_us)
+(`census.Publish.PublishWebBundle`). That publisher replaces only the `nfl/`
+subtree and keeps every other bundle on the site.
 
 ## Data
 

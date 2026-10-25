@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% set page = 'players' %}
+{% block title %}NFL player stats{% endblock %}
+{% block content %}
+<div id="player"><p class="t">Loading&hellip;</p></div>
+
+<script id="data" type="application/json">{{ players|tojson_compact|safe }}</script>
+<script id="teams" type="application/json">{{ teams|dictsort|map('last')|map(attribute='color')|list|tojson_compact|safe }}</script>
+<script id="abbrs" type="application/json">{{ teams|dictsort|map('first')|list|tojson_compact|safe }}</script>
+<script>
+(function(){
+  var data = JSON.parse(document.getElementById('data').textContent);
+  var colors = JSON.parse(document.getElementById('teams').textContent),
+      abbrs = JSON.parse(document.getElementById('abbrs').textContent), color = {};
+  abbrs.forEach(function(a, i){ color[a] = colors[i]; });
+  var LOG_SEASON = {{ log_season }}, root = document.getElementById('player');
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function team(a){
+    if (!a) return '';
+    if (!color[a]) return esc(a);
+    return '<a class="tm" href="../teams/' + a + '.html"><i style="background:' + color[a] + '"></i>' + a + '</a>';
+  }
+  function num(v){
+    if (v === 0 || v == null) return '<span class="t">&middot;</span>';
+    return Math.round(v) === v ? v.toLocaleString('en-US') : v.toFixed(1);
+  }
+  function table(title, cols, rows, career){
+    if (!rows.length) return '';
+    var h = '<section class="panel section"><div class="panel-head"><h2>' + title + '</h2></div><div class="overflow-x"><table class="dtable"><thead><tr>' +
+      '<th>Season</th><th>Team</th><th class="num">G</th>' + cols.map(function(c){ return '<th class="num">' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>';
+    rows.forEach(function(r){
+      h += '<tr><td>' + r[0] + '</td><td>' + r[1].split('/').map(team).join(' ') + '</td><td class="num">' + r[2] + '</td>' +
+        r.slice(3).map(function(v){ return '<td class="num">' + num(v) + '</td>'; }).join('') + '</tr>';
+    });
+    if (career && rows.length > 1) {
+      var tot = rows[0].slice(2).map(function(_, i){ return rows.reduce(function(s, r){ return s + (r[i + 2] || 0); }, 0); });
+      h += '<tr style="font-weight:600"><td>Career</td><td></td>' + tot.map(function(v){ return '<td class="num">' + num(Math.round(v * 10) / 10) + '</td>'; }).join('') + '</tr>';
+    }
+    return h + '</tbody></table></div></section>';
+  }
+  function render(){
+    var id = decodeURIComponent(location.hash.slice(1)), p = data[id];
+    if (!p) { root.innerHTML = '<p>Player not found. <a href="index.html">Search players</a>.</p>'; document.title = 'Player not found'; return; }
+    document.title = p.name + ' — NFL player stats';
+    var bio = [];
+    if (p.height) bio.push(Math.floor(p.height / 12) + '′' + (p.height % 12) + '″');
+    if (p.weight) bio.push(p.weight + ' lb');
+    if (p.birth_date) bio.push('born ' + esc(p.birth_date));
+    if (p.college) bio.push(esc(p.college));
+    var draft = p.draft_year ? (p.draft_year + ' draft, round ' + p.draft_round + ', pick ' + p.draft_pick + (p.draft_team ? ' (' + esc(p.draft_team) + ')' : '')) : (p.rookie_season ? 'Undrafted · rookie season ' + p.rookie_season : '');
+    var h = '<h1 class="page">' + esc(p.name) + ' <span class="t" style="font-size:14px">' + esc(p.pos) + (p.jersey_number ? ' #' + p.jersey_number : '') + '</span></h1>' +
+      '<section class="kpis"><div class="kpi"><div class="lbl">Team</div><div class="val" style="font-size:19px">' + (p.team ? team(p.team) : '&mdash;') + '</div>' +
+      '<div class="sub">' + (p.status === 'ACT' ? 'Active' : (p.status ? esc(p.status) : '')) + '</div></div>' +
+      '<div class="kpi"><div class="lbl">Seasons with stats</div><div class="val">' + p.reg.length + '</div><div class="sub">' +
+      (p.reg.length ? p.reg[p.reg.length - 1][0] + '&ndash;' + p.reg[0][0] : '') + '</div></div>' +
+      (bio.length || draft ? '<div class="kpi" style="grid-column:span 2"><div class="lbl">Bio</div><div class="sub" style="font-size:13px;color:var(--text-2)">' + bio.join(' &middot; ') + (draft ? '<br>' + draft : '') + '</div></div>' : '') +
+      '</section>';
+    h += table('Regular season', p.cols, p.reg, true);
+    h += table('Postseason', p.cols, p.post, true);
+    if (p.log) {
+      h += '<section class="panel section"><div class="panel-head"><h2>' + LOG_SEASON + ' game log</h2></div><div class="overflow-x"><table class="dtable"><thead><tr><th>Week</th><th>Opponent</th>' +
+        p.cols.map(function(c){ return '<th class="num">' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>';
+      p.log.forEach(function(r){
+        h += '<tr><td>' + r[0] + (r[2] === 'POST' ? ' <span class="t">post</span>' : '') + '</td><td>' + team(r[1]) + '</td>' +
+          r.slice(3).map(function(v){ return '<td class="num">' + num(v) + '</td>'; }).join('') + '</tr>';
+      });
+      h += '</tbody></table></div></section>';
+    }
+    root.innerHTML = h + '<p class="t"><a href="index.html">&larr; All players</a></p>';
+    window.scrollTo(0, 0);
+  }
+  window.addEventListener('hashchange', render);
+  render();
+})();
+</script>
+{% endblock %}

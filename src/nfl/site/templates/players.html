@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% import "macros.html" as n %}
+{% set page = 'players' %}
+{% block title %}NFL players — stats since 1999{% endblock %}
+{% block content %}
+<h1 class="page">Players</h1>
+
+<section class="panel section">
+  <div class="panel-head"><h2>Find a player</h2><span class="t">{{ "{:,}".format(index|length) }} players with stats since 1999</span></div>
+  <div class="search"><input id="q" type="search" placeholder="Name, e.g. Mahomes" autocomplete="off" aria-label="Player name"></div>
+  <div class="overflow-x">
+  <table class="dtable" id="results" hidden>
+    <thead><tr><th>Player</th><th>Pos</th><th>Team</th><th class="num">Seasons</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  </div>
+  <p class="t" id="none" style="padding:0 .95rem" hidden>No player matches.</p>
+</section>
+
+<h2 style="font-size:16px;margin:1.4rem 0 .7rem">{{ season }} leaders <span class="t">regular season</span></h2>
+<div class="grid2 section">
+{% for l in leaders %}
+  <section class="panel">
+    <div class="panel-head"><h2>{{ l.label }}</h2></div>
+    <table class="dtable"><tbody>
+    {% for r in l.rows %}
+      <tr><td class="t num" style="width:2rem">{{ loop.index }}</td>
+        <td><a href="{{ r.href }}">{{ r.name }}</a> <span class="t">{{ r.position }}</span></td>
+        <td>{% for t in r.teams %}{{ n.team(t, teams, root) }} {% endfor %}</td>
+        <td class="num">{{ n.num(r[l.field], 1 if l.field == 'def_sacks' else 0) }}</td></tr>
+    {% else %}
+      <tr><td class="t">No stats yet.</td></tr>
+    {% endfor %}
+    </tbody></table>
+  </section>
+{% endfor %}
+</div>
+
+<script id="idx" type="application/json">{{ index|tojson_compact|safe }}</script>
+<script>
+(function(){
+  // [id, name, position, team, first season, last season, shard]
+  var idx = JSON.parse(document.getElementById('idx').textContent);
+  var q = document.getElementById('q'), table = document.getElementById('results'),
+      body = table.querySelector('tbody'), none = document.getElementById('none');
+  function norm(s){ return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ''); }
+  var names = idx.map(function(r){ return norm(r[1]); });
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function run(){
+    var terms = norm(q.value).split(' ').filter(Boolean), out = [];
+    if (!terms.length) { table.hidden = true; none.hidden = true; return; }
+    for (var i = 0; i < idx.length && out.length < 60; i++) {
+      if (terms.every(function(t){ return names[i].indexOf(t) >= 0; })) out.push(idx[i]);
+    }
+    body.innerHTML = out.map(function(r){
+      var shard = (r[6] < 10 ? '0' : '') + r[6];
+      return '<tr><td><a href="s' + shard + '.html#' + esc(r[0]) + '">' + esc(r[1]) + '</a></td><td>' + esc(r[2]) +
+        '</td><td>' + (r[3] ? '<a class="tm" href="../teams/' + esc(r[3]) + '.html">' + esc(r[3]) + '</a>' : '') +
+        '</td><td class="num">' + r[4] + (r[5] !== r[4] ? '&ndash;' + r[5] : '') + '</td></tr>';
+    }).join('');
+    table.hidden = !out.length; none.hidden = !!out.length;
+  }
+  q.addEventListener('input', run);
+  if (location.hash.length > 1) { q.value = decodeURIComponent(location.hash.slice(1)); run(); }
+})();
+</script>
+{% endblock %}

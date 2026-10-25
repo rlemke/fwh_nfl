@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Facetwork domain: NFL players, teams and game predictions — nflverse data, an Elo team rating scored against the betting line, and a Monte Carlo path to the Super Bowl"
 requires-python = ">=3.11"
 authors = [{name = "Ralph Lemke"}]
-dependencies = ["pymongo>=4.0"]
+dependencies = ["pymongo>=4.0", "jinja2>=3.0"]
 
 [project.optional-dependencies]
 test = ["pytest>=7.0", "mongomock>=4.1"]
@@ -20,7 +20,7 @@ nfl = "nfl:domain"
 where = ["src"]
 
 [tool.setuptools.package-data]
-nfl = ["ffl/*.ffl"]
+nfl = ["ffl/*.ffl", "site/templates/*.html"]
 
 [tool.ruff]
 target-version = "py311"

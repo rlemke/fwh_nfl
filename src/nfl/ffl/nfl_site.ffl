@@ -1,0 +1,64 @@
+// Publishing the NFL static site to GitHub Pages.
+//
+// Kept apart from nfl.ffl because it composes another domain's facet
+// (census.Publish.PublishWebBundle — the shared, token-gated Pages publisher),
+// so compiling it needs that domain's FFL as a library:
+//
+//   fw ffl run --primary nfl_site.ffl --library nfl.ffl \
+//       --library <fwh_census_us>/src/census_us/handlers/publish/ffl/census_publish.ffl \
+//       --library facetwork/ffl/http.ffl --workflow nfl.publish.UpdateSite
+//
+// The publisher replaces only the `dest` subtree and merges the gallery
+// landing, so the other bundles on the site are untouched. Pages render
+// deterministically, so a day with no new results commits nothing.
+
+namespace nfl.publish {
+    use census.Publish
+
+    /** Render the site from what is already loaded and publish it. */
+    workflow PublishSite(
+        repo: String = "rlemke/facetwork-maps",
+        dest: String = "nfl",
+        label: String = "NFL predictions, playoff odds, teams and players"
+    ) => (pages_url: String, files: Int, commit: String) andThen {
+        site = nfl.site.Build()
+        published = PublishWebBundle(
+            repo = $.repo,
+            prefixes = [site.output_dir],
+            dests = [$.dest],
+            include = [".html"],
+            labels = [$.label]
+        )
+        yield PublishSite(
+            pages_url = published.pages_url,
+            files = site.files,
+            commit = published.commit
+        )
+    }
+
+    /** The daily job: refresh data, ratings, predictions and odds, then
+      * render and publish the site. */
+    workflow UpdateSite(
+        sims: Int = 10000,
+        width: Int = 4,
+        repo: String = "rlemke/facetwork-maps",
+        dest: String = "nfl",
+        label: String = "NFL predictions, playoff odds, teams and players"
+    ) => (pages_url: String, files: Int, commit: String, favourite: String) andThen {
+        updated = nfl.workflows.Update(sims = $.sims, width = $.width)
+        site = nfl.site.Build(season = updated.season)
+        published = PublishWebBundle(
+            repo = $.repo,
+            prefixes = [site.output_dir],
+            dests = [$.dest],
+            include = [".html"],
+            labels = [$.label]
+        )
+        yield UpdateSite(
+            pages_url = published.pages_url,
+            files = site.files,
+            commit = published.commit,
+            favourite = updated.favourite
+        )
+    }
+}

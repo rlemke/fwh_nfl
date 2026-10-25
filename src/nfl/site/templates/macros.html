@@ -1,0 +1,30 @@
+{# Team identity is the abbreviation in a chip edged with the team's colour —
+   the colour is decoration, the text carries the meaning. #}
+
+{% macro team(abbr, teams, root, label=None) -%}
+{%- set t = teams.get(abbr) if teams else None -%}
+<a class="tm" href="{{ root }}teams/{{ abbr }}.html" title="{{ t.name if t else abbr }}"><i style="background:{{ (t.color if t else '') or 'var(--border-strong)' }}"></i>{{ label or abbr }}</a>
+{%- endmacro %}
+
+{% macro pct(v, digits=0) -%}
+{%- if v is none or v is undefined -%}<span class="t">&mdash;</span>
+{%- elif v > 0 and v < 0.005 and digits == 0 -%}&lt;1%
+{%- elif v < 1 and v > 0.995 and digits == 0 -%}&gt;99%
+{%- else -%}{{ "%.*f"|format(digits, v * 100) }}%{%- endif -%}
+{%- endmacro %}
+
+{% macro pbar(v) -%}
+<span class="pbar"><b style="width:{{ ((v or 0) * 100)|round(1) }}%"></b></span>
+{%- endmacro %}
+
+{% macro fav(g, v) -%}
+{%- if v is none or v is undefined -%}<span class="t">&mdash;</span>
+{%- elif v == 0 -%}Pick&rsquo;em
+{%- else -%}{{ g.home if v > 0 else g.away }} &minus;{{ "%.1f"|format(v|abs) }}{%- endif -%}
+{%- endmacro %}
+
+{% macro num(v, digits=0) -%}
+{%- if v is none or v is undefined or v == 0 -%}<span class="t">&middot;</span>
+{%- elif digits -%}{{ "%.*f"|format(digits, v) }}
+{%- else -%}{{ "{:,}".format(v|round|int) }}{%- endif -%}
+{%- endmacro %}
