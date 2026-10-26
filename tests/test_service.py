@@ -114,3 +114,12 @@ def test_source_plan_covers_every_season():
     assert names[:3] == ["games.csv", "teams_colors_logos.csv", "players.csv"]
     assert names[3:] == [f"stats_player_week_{y}.csv" for y in range(2020, 2027)]
     assert sources.default_season(dt.date(2027, 1, 20)) == 2026
+
+
+def test_results_are_always_revalidated():
+    """A reuse window on the results file hid a Sunday's finals from every run
+    inside it (2026-10-25); results and this season's stats must ask upstream."""
+    age = {s["name"]: s["max_age_hours"] for s in sources.plan(2025, today=dt.date(2026, 10, 25))}
+    assert age["games.csv"] == 0.0
+    assert age["stats_player_week_2026.csv"] == 0.0
+    assert age["stats_player_week_2025.csv"] > 0

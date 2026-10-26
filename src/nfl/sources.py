@@ -37,7 +37,10 @@ def plan(
     first = max(first_season or FIRST_SEASON, FIRST_SEASON)
     base = raw_dir()
     out = [
-        {"name": "games.csv", "url": f"{NFLDATA}/games.csv", "max_age_hours": 6.0},
+        # 0 = ask upstream on every run (a conditional GET, so an unchanged file
+        # costs one 304). Results land in this file within minutes of the final
+        # whistle; any reuse window hides them from a run inside it.
+        {"name": "games.csv", "url": f"{NFLDATA}/games.csv", "max_age_hours": 0.0},
         {
             "name": "teams_colors_logos.csv",
             "url": f"{RELEASES}/teams/teams_colors_logos.csv",
@@ -50,7 +53,9 @@ def plan(
             {
                 "name": f"stats_player_week_{season}.csv",
                 "url": f"{RELEASES}/stats_player/stats_player_week_{season}.csv",
-                "max_age_hours": 12.0 if season >= current - 1 else 24.0 * 90,
+                "max_age_hours": (
+                    0.0 if season == current else 12.0 if season == current - 1 else 24.0 * 90
+                ),
             }
         )
     for s in out:
